@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+set -euo pipefail
+# shellcheck source=scripts/ci-guard.sh
+source "$(dirname "$0")/../ci-guard.sh"
+require_hosted_ci --ci-only
+docker run --rm --user builder -v "$PWD:/work:ro" -w /work served-packaging-check makepkg "$@"

@@ -1,0 +1,10 @@
+[Trigger]
+Operation = Remove
+Type = Package
+Target = served-bin
+
+[Action]
+Description = Stopping active served managers before removal...
+When = PreTransaction
+Exec = /usr/lib/served/served-pacman stop
+AbortOnFail

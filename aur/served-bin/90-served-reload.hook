@@ -1,0 +1,9 @@
+[Trigger]
+Operation = Upgrade
+Type = Package
+Target = served-bin
+
+[Action]
+Description = Handing off active served managers...
+When = PostTransaction
+Exec = /usr/lib/served/served-pacman reload

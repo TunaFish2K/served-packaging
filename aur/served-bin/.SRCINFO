@@ -1,0 +1,29 @@
+pkgbase = served-bin
+	pkgdesc = Lightweight per-user service manager with terminal UI and PTY attach
+	pkgver = 0.15.1
+	pkgrel = 3
+	url = https://github.com/TunaFish2K/served
+	install = served-install
+	arch = x86_64
+	license = Unlicense
+	depends = glibc
+	depends = bash
+	optdepends = systemd: manage per-user manager instances at boot
+	provides = served=0.15.1
+	conflicts = served
+	options = !strip
+	options = !debug
+	source = https://github.com/TunaFish2K/served/releases/download/v0.15.1/served-linux-amd64-v0.15.1-full.tar.gz
+	source = served-install
+	source = served-pacman
+	source = 90-served-reload.hook
+	source = 10-served-stop.hook
+	source = MIGRATION.md
+	sha256sums = 9e07ae97a8dc29d323e5f94f5d43992badaae3a515766bd7241ded197d66dc9e
+	sha256sums = 02ecabf422e6c7bd148776b25da923d4d9955f0c09437101a7c697b3b1bdc6bc
+	sha256sums = a433f60ee2258560ed21985b4ae67d059fbea2fd038059f5df339b64f5d57f1d
+	sha256sums = 39ee7441c668b0f2fca0f6c5e17a66a1011f6e707efc402b9a4a567a71a2b39a
+	sha256sums = 1bbeaf94918a02444f04e77faf51c1aaac0f85f05613de6923b6624e9c1de9c0
+	sha256sums = e01f26f9fe11d2737898533a3ffc939b195177e137c7a7771f8fa5a64b5947bb
+
+pkgname = served-bin

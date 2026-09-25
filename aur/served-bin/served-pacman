@@ -1,0 +1,25 @@
+#!/usr/bin/bash
+set -euo pipefail
+operation=${1:?expected reload or stop}
+case "$operation" in reload|stop) ;; *) exit 2 ;; esac
+# Package installation in a chroot must not contact the host manager.
+[[ -d /run/systemd/system ]] || exit 0
+unit_list=$(systemctl list-units --type=service --state=active --no-legend --plain 'served@*.service' | awk '{print $1}')
+mapfile -t units <<< "$unit_list"
+failed=0
+for unit in "${units[@]}"; do
+    [[ "$unit" == served@*.service ]] || continue
+    fragment=$(systemctl show --property=FragmentPath --value "$unit")
+    if [[ "$fragment" != /usr/lib/systemd/system/served@.service ]]; then
+        echo "Skipping $unit: manually installed unit $fragment; see /usr/share/doc/served-bin/MIGRATION.md" >&2
+        continue
+    fi
+    if ! systemctl "$operation" "$unit"; then
+        echo "served: $operation failed for $unit. Inspect: systemctl status $unit; journalctl -u $unit" >&2
+        if [[ "$operation" == reload ]]; then
+            echo "After inspection, a controlled restart is available: systemctl restart $unit (stops its services)." >&2
+        fi
+        failed=1
+    fi
+done
+exit "$failed"

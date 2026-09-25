@@ -1,0 +1,165 @@
+name: AUR package
+on:
+  schedule:
+    - cron: '37 * * * *'
+  workflow_dispatch:
+    inputs:
+      check_only:
+        description: Validate without committing or publishing
+        type: boolean
+        default: false
+      tag:
+        description: Optional stable upstream tag (downgrades are rejected)
+        type: string
+      refresh:
+        description: Refresh local packaging files and increment pkgrel
+        type: boolean
+        default: false
+  push:
+    branches: [main]
+  pull_request:
+permissions:
+  contents: read
+concurrency:
+  group: aur-${{ github.event_name == 'pull_request' && github.event.pull_request.number || 'release' }}
+  cancel-in-progress: false
+jobs:
+  static:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.24.x'
+          cache: false
+      - name: Install workflow validator
+        run: go install github.com/rhysd/actionlint/cmd/actionlint@v1.7.7
+      - name: Local-safe checks
+        run: scripts/verify.sh
+  package:
+    needs: static
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    outputs:
+      publish: ${{ steps.mode.outputs.publish }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Build Arch environment
+        run: docker build -t served-packaging-check .
+      - name: Discover completed release
+        if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          INPUT_TAG: ${{ inputs.tag }}
+          INPUT_REFRESH: ${{ inputs.refresh }}
+        run: |
+          export PATH="$PWD/scripts/ci-bin:$PATH"
+          args=()
+          [[ -z "$INPUT_TAG" ]] || args+=(--tag "$INPUT_TAG")
+          [[ "$INPUT_REFRESH" != true ]] || args+=(--refresh)
+          python3 scripts/update.py "${args[@]}"
+      - name: Build and install in an ordinary Arch container
+        run: scripts/ci-build.sh --ci-only
+      - name: Select publication mode
+        id: mode
+        env:
+          EVENT: ${{ github.event_name }}
+          CHECK_ONLY: ${{ inputs.check_only }}
+        run: |
+          publish=false
+          if [[ "$EVENT" == schedule || "$EVENT" == workflow_dispatch ]]; then
+            [[ "$CHECK_ONLY" == true ]] || publish=true
+          fi
+          echo "publish=$publish" >> "$GITHUB_OUTPUT"
+      - name: Preserve tested recipe
+        uses: actions/upload-artifact@v4
+        with:
+          name: validated-recipe
+          path: aur/served-bin/
+          include-hidden-files: true
+      - name: Preserve package and diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: arch-package
+          path: out/
+          if-no-files-found: error
+          retention-days: 14
+  systemd:
+    needs: package
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: arch-package
+          path: out/
+      - name: Test systemd only inside this disposable GitHub-hosted VM
+        run: scripts/ci-systemd.sh --ci-only
+      - name: Preserve systemd diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: systemd-diagnostics
+          path: out/systemd/
+          if-no-files-found: warn
+          retention-days: 14
+  publish:
+    needs: [package, systemd]
+    if: needs.package.outputs.publish == 'true' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - name: Refuse to publish an obsolete checkout
+        run: |
+          git fetch origin main
+          test "$(git rev-parse origin/main)" = "$GITHUB_SHA"
+      - uses: actions/download-artifact@v4
+        with:
+          name: validated-recipe
+          path: aur/served-bin/
+      - name: Commit validated version
+        run: |
+          chmod +x aur/served-bin/served-pacman
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add aur/served-bin/PKGBUILD aur/served-bin/.SRCINFO aur/served-bin/upstream.json
+          if ! git diff --cached --quiet; then
+            git commit -m 'Update served-bin from verified upstream release'
+            git push origin HEAD:main
+          fi
+      - name: Publish to AUR
+        env:
+          AUR_PUBLISH_ENABLED: ${{ vars.AUR_PUBLISH_ENABLED }}
+          AUR_SSH_PRIVATE_KEY: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
+        run: scripts/publish-aur.sh
+      - name: Record synchronized AUR revision
+        run: |
+          if [[ -f aur/served-bin/aur-published.json ]]; then
+            git add aur/served-bin/aur-published.json
+            if ! git diff --cached --quiet; then
+              git commit -m 'Record synchronized AUR revision'
+              git push origin HEAD:main
+            fi
+          fi
+      - name: Publication summary
+        env:
+          AUR_PUBLISH_ENABLED: ${{ vars.AUR_PUBLISH_ENABLED }}
+        run: |
+          if [[ "$AUR_PUBLISH_ENABLED" == true ]]; then
+            echo 'AUR synchronized with the validated recipe.' >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo 'GitHub recipe updated. AUR publishing is disabled until an AUR account and SSH key are configured.' >> "$GITHUB_STEP_SUMMARY"
+          fi

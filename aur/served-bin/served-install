@@ -1,0 +1,9 @@
+post_install() {
+    echo 'Enable a manager explicitly: sudo systemctl enable --now served@USERNAME.service'
+    if [[ -e /usr/local/bin/served || -e /etc/systemd/system/served@.service ]]; then
+        echo 'Existing manual installation detected. See /usr/share/doc/served-bin/MIGRATION.md before enabling or upgrading instances.'
+    fi
+}
+post_upgrade() {
+    post_install
+}
