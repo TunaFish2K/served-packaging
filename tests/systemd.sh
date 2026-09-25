@@ -5,13 +5,14 @@ set -euo pipefail
 source "$(dirname "$0")/../scripts/ci-guard.sh"
 require_ci_container
 [[ ${container:-} == docker ]]
+trap 'echo "Failed at line $LINENO: $BASH_COMMAND" >&2' ERR
 packages=(/packages/*.pkg.tar.zst)
 pacman -U --noconfirm "${packages[@]}"
 if systemctl is-active --quiet served@alice.service; then exit 1; fi
 if systemctl is-active --quiet served@bob.service; then exit 1; fi
 for user in alice bob; do
     install -d -o "$user" -g "$user" "/home/$user/project"
-    printf '%s\n' "{name:'probe',command:'exec sleep 300',tty:false,persist_logs:true}" > "/home/$user/project/.served.json5"
+    printf '%s\n' "{name:'probe',command:'echo package-log; exec sleep 300',tty:false,persist_logs:true}" > "/home/$user/project/.served.json5"
     chown "$user:$user" "/home/$user/project/.served.json5"
 done
 cli() { runuser -u "$1" -- env HOME="/home/$1" /usr/bin/served "${@:2}"; }
@@ -35,6 +36,11 @@ for ((i=0; i<100; i++)); do
     sleep .1
 done
 [[ "$old_pid" != None ]]
+for ((i=0; i<100; i++)); do
+    if cli alice history probe --stdout | grep -q package-log; then break; fi
+    sleep .1
+done
+cli alice history probe --stdout | grep -q package-log
 old_manager=$(systemctl show -p MainPID --value served@alice.service)
 pacman -U --noconfirm "${packages[@]}"
 wait_ready alice
