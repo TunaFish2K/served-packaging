@@ -50,10 +50,11 @@ kill -0 "$old_pid"
 if systemctl is-active --quiet served@bob.service; then exit 1; fi
 [[ $(systemctl show -p MainPID --value served@alice.service) != 0 ]]
 [[ "$old_manager" != 0 ]]
+sha256sum /home/alice/project/.served.json5 /home/alice/.config/served/enabled/probe > /tmp/user-data.sha256
+[[ -d /home/alice/.local/state/served/logs/probe ]]
 pacman -R --noconfirm served-bin
 if systemctl is-active --quiet served@alice.service; then exit 1; fi
 if kill -0 "$old_pid" 2>/dev/null; then exit 1; fi
-[[ -e /home/alice/project/.served.json5 ]]
-[[ -L /home/alice/.config/served/enabled/probe ]]
+sha256sum --check /tmp/user-data.sha256
 [[ -d /home/alice/.local/state/served/logs/probe ]]
 echo 'systemd upgrade preserves service PID; removal stops instances and keeps user data'
